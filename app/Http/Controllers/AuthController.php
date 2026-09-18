@@ -1,0 +1,4 @@
+<?php
+namespace App\Http\Controllers;
+use Illuminate\Http\Request; use Illuminate\Support\Facades\Auth; use Illuminate\Support\Facades\Hash;
+class AuthController extends Controller { public function create(){return view('auth.login');} public function store(Request $request){$data=$request->validate(['identity'=>'required|string','password'=>'required|string']); $ok=Auth::attempt(['username'=>$data['identity'],'password'=>$data['password'],'status'=>'active']) || Auth::attempt(['email'=>$data['identity'],'password'=>$data['password'],'status'=>'active']); if(!$ok) return back()->withErrors(['identity'=>'Invalid credentials.'])->onlyInput('identity'); $request->session()->regenerate(); return redirect()->intended(route('dashboard'));} public function destroy(Request $request){Auth::logout(); $request->session()->invalidate(); $request->session()->regenerateToken(); return redirect()->route('home');} }
