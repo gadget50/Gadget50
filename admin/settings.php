@@ -1,21 +1,197 @@
 <?php
+
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/email.php';
+
 requireLogin('../login.php');
 requireRole('super_admin', '../login.php');
-$pdo=Database::getInstance();
-$provider=(string)($_POST['provider']??getSetting('email_provider','')); $defaults=mailDefaults($provider);
-if($_SERVER['REQUEST_METHOD']==='POST'){
- verifyCsrf(); $action=(string)($_POST['action']??'');
- if($action==='save'){
-  $provider=(string)($_POST['provider']??'custom');$host=trim((string)($_POST['smtp_host']??''));$port=(int)($_POST['smtp_port']??0);$encryption=(string)($_POST['smtp_encryption']??'tls');$username=trim((string)($_POST['smtp_username']??''));$password=(string)($_POST['smtp_password']??'');$from=trim((string)($_POST['smtp_from_email']??''));$name=trim((string)($_POST['smtp_from_name']??APP_NAME));
-  if(!in_array($provider,['gmail','zoho','custom'],true)||$host===''||$port<1||$port>65535||!in_array($encryption,['tls','ssl','none'],true)||!filter_var($username,FILTER_VALIDATE_EMAIL)||!filter_var($from,FILTER_VALIDATE_EMAIL)||($password===''&&getSetting('smtp_password','')==='')){setFlash('danger','SMTP তথ্য সঠিকভাবে পূরণ করুন।');redirect('settings.php');}
-  foreach(['email_provider'=>$provider,'smtp_host'=>$host,'smtp_port'=>(string)$port,'smtp_encryption'=>$encryption,'smtp_username'=>$username,'smtp_from_email'=>$from,'smtp_from_name'=>$name,'email_smtp_validated'=>'0','email_service_enabled'=>'0'] as $key=>$value)setSetting($pdo,$key,$value);if($password!=='')setSetting($pdo,'smtp_password',$password);setFlash('success','SMTP সেটিংস সংরক্ষিত হয়েছে। এখন পরীক্ষা করুন।');redirect('settings.php');
- }
- if($action==='test'){ $to=trim((string)($_POST['test_email']??''));$ok=filter_var($to,FILTER_VALIDATE_EMAIL)&&sendSmtpMail($to,APP_NAME.' SMTP test','<p>SMTP test successful.</p>',getMailConfig());setSetting($pdo,'email_smtp_validated',$ok?'1':'0');setFlash($ok?'success':'danger',$ok?'SMTP পরীক্ষা সফল হয়েছে।':'SMTP পরীক্ষা ব্যর্থ হয়েছে; তথ্য ও হোস্টের SMTP অনুমতি যাচাই করুন।');redirect('settings.php'); }
- if($action==='toggle'){if(getSetting('email_smtp_validated','0')!=='1'){setFlash('danger','সফল SMTP পরীক্ষা ছাড়া Email Service চালু করা যাবে না।');}else{setSetting($pdo,'email_service_enabled',getSetting('email_service_enabled','0')==='1'?'0':'1');setFlash('success','Email Service-এর অবস্থা পরিবর্তন হয়েছে।');}redirect('settings.php');}
+
+$pdo = Database::getInstance();
+$defaults = [
+    'site_name' => 'Gadget 50',
+    'site_url' => '',
+    'site_logo' => '',
+    'site_favicon' => '',
+    'site_description' => '',
+    'site_email' => '',
+    'contact_phone' => '',
+    'default_language' => 'en',
+    'default_timezone' => 'UTC',
+    'maintenance_mode' => '0',
+    'maintenance_message' => '',
+    'header_visible' => '1',
+    'footer_visible' => '1',
+    'footer_name' => '',
+    'footer_description' => '',
+    'footer_copyright' => '© ' . date('Y') . ' Gadget 50',
+    'footer_logo' => '',
+    'footer_links' => '',
+    'footer_contact' => '',
+    'footer_social_links' => '',
+    'meta_title' => '',
+    'meta_description' => '',
+    'meta_keywords' => '',
+    'og_image' => '',
+    'robots_meta' => 'index,follow',
+    'canonical_url' => '',
+    'google_analytics_id' => '',
+    'google_search_console_verification' => '',
+    'registration_enabled' => '1',
+    'email_required' => '0',
+    'email_service_enabled' => '0',
+    'email_verification_enabled' => '0',
+    'password_reset_email_enabled' => '0',
+    'system_email_notifications_enabled' => '0',
+];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
+
+    $keys = [
+        'site_name','site_url','site_logo','site_favicon','site_description','site_email','contact_phone','default_language','default_timezone','maintenance_mode','maintenance_message',
+        'header_visible','footer_visible','footer_name','footer_description','footer_copyright','footer_logo','footer_links','footer_contact','footer_social_links',
+        'meta_title','meta_description','meta_keywords','og_image','robots_meta','canonical_url','google_analytics_id','google_search_console_verification','registration_enabled',
+        'email_service_enabled','email_required','email_verification_enabled','password_reset_email_enabled','system_email_notifications_enabled',
+        'email_provider','smtp_host','smtp_port','smtp_encryption','smtp_username','smtp_password','smtp_from_email','smtp_from_name','admin_alert_email'
+    ];
+
+    foreach ($keys as $key) {
+        $value = trim((string) ($_POST[$key] ?? ($defaults[$key] ?? '')));
+        if (in_array($key, ['maintenance_mode','header_visible','footer_visible','registration_enabled','email_service_enabled','email_required','email_verification_enabled','password_reset_email_enabled','system_email_notifications_enabled'], true)) {
+            $value = isset($_POST[$key]) ? '1' : '0';
+        }
+        if ($key === 'smtp_password' && $value === '') {
+            $value = getSetting('smtp_password', '');
+        }
+        setSetting($pdo, $key, $value);
+    }
+
+    if ((string) ($_POST['email_service_enabled'] ?? '0') === '1') {
+        setFlash('success', 'Email service enabled. SMTP settings are now active for the website.');
+    } else {
+        setFlash('success', 'Email service disabled. The site continues without email features.');
+    }
+
+    redirect('settings.php');
 }
-$rows=$pdo->query('SELECT setting_key,setting_value FROM settings')->fetchAll();$settings=[];foreach($rows as $row)$settings[(string)$row['setting_key']]=(string)($row['setting_value']??'');$flash=getFlash();$enabled=($settings['email_service_enabled']??'0')==='1';$validated=($settings['email_smtp_validated']??'0')==='1';
-function settingValue(array $settings,string $key,string $default=''):string{return $settings[$key]??$default;}
-?><!doctype html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ইমেইল সেটিংস | <?=e(APP_NAME)?></title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head><body class="bg-light"><main class="container py-5"><div class="d-flex justify-content-between align-items-center mb-4"><h2>ইমেইল ও নিরাপত্তা সেটিংস</h2><a href="index.php" class="btn btn-outline-secondary">ড্যাশবোর্ড</a></div><?php if($flash):?><div class="alert alert-<?=e((string)$flash['type'])?>"><?=e((string)$flash['message'])?></div><?php endif;?><div class="alert alert-<?=$enabled?'success':'warning'?>">Email Service: <strong><?=$enabled?'চালু':'বন্ধ'?></strong> · SMTP যাচাই: <strong><?=$validated?'সফল':'অসম্পন্ন'?></strong><br>সফল SMTP পরীক্ষা ছাড়া Email Service বা ইমেইল-ভিত্তিক 2FA চালু করা যাবে না।</div><form method="post" class="card card-body mb-4"><input type="hidden" name="csrf_token" value="<?=e(csrfToken())?>"><input type="hidden" name="action" value="save"><div class="row g-3"><div class="col-md-4"><label class="form-label">Provider</label><select class="form-select" name="provider"><option value="gmail" <?=settingValue($settings,'email_provider')==='gmail'?'selected':''?>>Gmail</option><option value="zoho" <?=settingValue($settings,'email_provider')==='zoho'?'selected':''?>>Zoho</option><option value="custom" <?=in_array(settingValue($settings,'email_provider'),['','custom'],true)?'selected':''?>>Custom SMTP</option></select></div><div class="col-md-8"><label class="form-label">SMTP Host</label><input class="form-control" name="smtp_host" value="<?=e(settingValue($settings,'smtp_host',$defaults['host']))?>" required></div><div class="col-md-3"><label class="form-label">Port</label><input class="form-control" name="smtp_port" value="<?=e(settingValue($settings,'smtp_port',(string)$defaults['port']))?>" required></div><div class="col-md-3"><label class="form-label">Encryption</label><select class="form-select" name="smtp_encryption"><option value="tls" <?=settingValue($settings,'smtp_encryption','tls')==='tls'?'selected':''?>>TLS</option><option value="ssl" <?=settingValue($settings,'smtp_encryption')==='ssl'?'selected':''?>>SSL</option><option value="none" <?=settingValue($settings,'smtp_encryption')==='none'?'selected':''?>>None</option></select></div><div class="col-md-6"><label class="form-label">SMTP Username</label><input class="form-control" type="email" name="smtp_username" value="<?=e(settingValue($settings,'smtp_username'))?>" required></div><div class="col-md-6"><label class="form-label">App Password</label><input class="form-control" type="password" name="smtp_password" autocomplete="new-password"><small>আগের পাসওয়ার্ড রাখতে চাইলে ফাঁকা রাখুন।</small></div><div class="col-md-3"><label class="form-label">From Email</label><input class="form-control" type="email" name="smtp_from_email" value="<?=e(settingValue($settings,'smtp_from_email'))?>" required></div><div class="col-md-3"><label class="form-label">From Name</label><input class="form-control" name="smtp_from_name" value="<?=e(settingValue($settings,'smtp_from_name',APP_NAME))?>"></div><div class="col-12"><button class="btn btn-primary">সেটিংস সংরক্ষণ</button></div></div></form><form method="post" class="card card-body mb-3"><input type="hidden" name="csrf_token" value="<?=e(csrfToken())?>"><input type="hidden" name="action" value="test"><label class="form-label">পরীক্ষার ইমেইল</label><div class="input-group"><input class="form-control" type="email" name="test_email" required><button class="btn btn-outline-primary">SMTP পরীক্ষা</button></div></form><form method="post"><input type="hidden" name="csrf_token" value="<?=e(csrfToken())?>"><input type="hidden" name="action" value="toggle"><button class="btn btn-<?=$enabled?'danger':'success'?>"><?=$enabled?'Email Service বন্ধ করুন':'Email Service চালু করুন'?></button></form></main></body></html>
+
+$settings = [];
+foreach ($pdo->query('SELECT setting_key, setting_value FROM settings')->fetchAll() as $row) {
+    $settings[(string) $row['setting_key']] = (string) ($row['setting_value'] ?? '');
+}
+
+$setting = static function (string $key, string $default = '') use ($settings, $defaults): string {
+    return $settings[$key] ?? ($defaults[$key] ?? $default);
+};
+
+$flash = getFlash();
+$siteName = $setting('site_name', 'Gadget 50');
+$emailEnabled = $setting('email_service_enabled', '0') === '1';
+?>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Website settings | <?= e($siteName) ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body class="dashboard-body">
+<div class="container py-4 py-lg-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <span class="eyebrow">ADMIN CONTROL</span>
+            <h1>Website settings</h1>
+        </div>
+        <a class="btn btn-outline-secondary" href="index.php">Back to admin</a>
+    </div>
+
+    <?php if ($flash): ?>
+        <div class="alert alert-<?= e((string) $flash['type']) ?>"><?= e((string) $flash['message']) ?></div>
+    <?php endif; ?>
+
+    <form method="post" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+
+        <div class="content-panel mb-4">
+            <h2>General settings</h2>
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Website name</label><input class="form-control" name="site_name" value="<?= e($setting('site_name', 'Gadget 50')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Website URL</label><input class="form-control" name="site_url" value="<?= e($setting('site_url', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Website logo</label><input class="form-control" name="site_logo" value="<?= e($setting('site_logo', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Website favicon</label><input class="form-control" name="site_favicon" value="<?= e($setting('site_favicon', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Website email</label><input class="form-control" type="email" name="site_email" value="<?= e($setting('site_email', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Contact phone</label><input class="form-control" name="contact_phone" value="<?= e($setting('contact_phone', '')) ?>"></div>
+                <div class="col-12"><label class="form-label">Website description</label><textarea class="form-control" name="site_description" rows="2"><?= e($setting('site_description', '')) ?></textarea></div>
+                <div class="col-md-4"><label class="form-label">Default language</label><input class="form-control" name="default_language" value="<?= e($setting('default_language', 'en')) ?>"></div>
+                <div class="col-md-4"><label class="form-label">Timezone</label><input class="form-control" name="default_timezone" value="<?= e($setting('default_timezone', 'UTC')) ?>"></div>
+                <div class="col-md-4"><label class="form-label">Maintenance message</label><input class="form-control" name="maintenance_message" value="<?= e($setting('maintenance_message', '')) ?>"></div>
+                <div class="col-md-6 form-check ms-2"><input class="form-check-input" type="checkbox" name="maintenance_mode" value="1" <?= $setting('maintenance_mode', '0') === '1' ? 'checked' : '' ?>><label class="form-check-label">Maintenance mode</label></div>
+                <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="registration_enabled" value="1" <?= $setting('registration_enabled', '1') === '1' ? 'checked' : '' ?>><label class="form-check-label">Allow public registration</label></div>
+            </div>
+        </div>
+
+        <div class="content-panel mb-4">
+            <h2>Header & footer</h2>
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Header visible</label><div class="form-check"><input class="form-check-input" type="checkbox" name="header_visible" value="1" <?= $setting('header_visible', '1') === '1' ? 'checked' : '' ?>></div></div>
+                <div class="col-md-6"><label class="form-label">Footer visible</label><div class="form-check"><input class="form-check-input" type="checkbox" name="footer_visible" value="1" <?= $setting('footer_visible', '1') === '1' ? 'checked' : '' ?>></div></div>
+                <div class="col-md-6"><label class="form-label">Footer website name</label><input class="form-control" name="footer_name" value="<?= e($setting('footer_name', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Footer logo</label><input class="form-control" name="footer_logo" value="<?= e($setting('footer_logo', '')) ?>"></div>
+                <div class="col-12"><label class="form-label">Footer description</label><textarea class="form-control" name="footer_description" rows="2"><?= e($setting('footer_description', '')) ?></textarea></div>
+                <div class="col-12"><label class="form-label">Footer copyright</label><input class="form-control" name="footer_copyright" value="<?= e($setting('footer_copyright', '© ' . date('Y') . ' Gadget 50')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Footer links</label><textarea class="form-control" name="footer_links" rows="2"><?= e($setting('footer_links', '')) ?></textarea></div>
+                <div class="col-md-6"><label class="form-label">Footer contact</label><textarea class="form-control" name="footer_contact" rows="2"><?= e($setting('footer_contact', '')) ?></textarea></div>
+                <div class="col-12"><label class="form-label">Footer social links</label><textarea class="form-control" name="footer_social_links" rows="2"><?= e($setting('footer_social_links', '')) ?></textarea></div>
+            </div>
+        </div>
+
+        <div class="content-panel mb-4">
+            <h2>SEO</h2>
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Meta title</label><input class="form-control" name="meta_title" value="<?= e($setting('meta_title', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Meta keywords</label><input class="form-control" name="meta_keywords" value="<?= e($setting('meta_keywords', '')) ?>"></div>
+                <div class="col-12"><label class="form-label">Meta description</label><textarea class="form-control" name="meta_description" rows="2"><?= e($setting('meta_description', '')) ?></textarea></div>
+                <div class="col-md-6"><label class="form-label">Open Graph image</label><input class="form-control" name="og_image" value="<?= e($setting('og_image', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Canonical URL</label><input class="form-control" name="canonical_url" value="<?= e($setting('canonical_url', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Google Analytics ID</label><input class="form-control" name="google_analytics_id" value="<?= e($setting('google_analytics_id', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Search Console verification</label><input class="form-control" name="google_search_console_verification" value="<?= e($setting('google_search_console_verification', '')) ?>"></div>
+            </div>
+        </div>
+
+        <div class="content-panel mb-4">
+            <h2>Email & SMTP</h2>
+            <div class="row g-3">
+                <div class="col-md-6 form-check ms-2"><input class="form-check-input" type="checkbox" name="email_service_enabled" value="1" <?= $setting('email_service_enabled', '0') === '1' ? 'checked' : '' ?>><label class="form-check-label">Email service ON</label></div>
+                <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="email_required" value="1" <?= $setting('email_required', '0') === '1' ? 'checked' : '' ?>><label class="form-check-label">Require email address</label></div>
+                <div class="col-md-6 form-check ms-2"><input class="form-check-input" type="checkbox" name="email_verification_enabled" value="1" <?= $setting('email_verification_enabled', '0') === '1' ? 'checked' : '' ?>><label class="form-check-label">Enable email verification</label></div>
+                <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="password_reset_email_enabled" value="1" <?= $setting('password_reset_email_enabled', '0') === '1' ? 'checked' : '' ?>><label class="form-check-label">Enable password reset by email</label></div>
+                <div class="col-md-12 form-check ms-2"><input class="form-check-input" type="checkbox" name="system_email_notifications_enabled" value="1" <?= $setting('system_email_notifications_enabled', '0') === '1' ? 'checked' : '' ?>><label class="form-check-label">Enable system email notifications</label></div>
+                <div class="col-md-4"><label class="form-label">Email provider</label><input class="form-control" name="email_provider" value="<?= e($setting('email_provider', '')) ?>"></div>
+                <div class="col-md-8"><label class="form-label">SMTP host</label><input class="form-control" name="smtp_host" value="<?= e($setting('smtp_host', '')) ?>"></div>
+                <div class="col-md-3"><label class="form-label">SMTP port</label><input class="form-control" name="smtp_port" value="<?= e($setting('smtp_port', '587')) ?>"></div>
+                <div class="col-md-3"><label class="form-label">SMTP encryption</label><input class="form-control" name="smtp_encryption" value="<?= e($setting('smtp_encryption', 'tls')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">SMTP username</label><input class="form-control" name="smtp_username" value="<?= e($setting('smtp_username', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">SMTP password</label><input class="form-control" type="password" name="smtp_password" value="" placeholder="Leave blank to keep existing password"></div>
+                <div class="col-md-6"><label class="form-label">From email</label><input class="form-control" name="smtp_from_email" value="<?= e($setting('smtp_from_email', '')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">From name</label><input class="form-control" name="smtp_from_name" value="<?= e($setting('smtp_from_name', 'Gadget 50')) ?>"></div>
+                <div class="col-md-12"><label class="form-label">Admin alert email</label><input class="form-control" name="admin_alert_email" value="<?= e($setting('admin_alert_email', '')) ?>"></div>
+            </div>
+        </div>
+
+        <div class="content-panel mb-4">
+            <h2>Security & media</h2>
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Allowed file types</label><input class="form-control" name="allowed_file_types" value="<?= e($setting('allowed_file_types', 'jpg,jpeg,png,gif,webp')) ?>"></div>
+                <div class="col-md-6"><label class="form-label">Max upload size</label><input class="form-control" name="max_upload_size" value="<?= e($setting('max_upload_size', '5242880')) ?>"></div>
+                <div class="col-md-12"><label class="form-label">Site robots</label><input class="form-control" name="robots_meta" value="<?= e($setting('robots_meta', 'index,follow')) ?>"></div>
+            </div>
+        </div>
+
+        <button class="btn btn-primary" type="submit">Save settings</button>
+    </form>
+</div>
+</body>
+</html>
