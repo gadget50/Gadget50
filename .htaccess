@@ -4,18 +4,43 @@ Options -Indexes
     Require all denied
 </FilesMatch>
 
-ErrorDocument 404 404.php
+ErrorDocument 404 /404
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # PHP handles the installation lock and subfolder-aware redirects.
+    # Canonical clean URLs: never leave .php routes visible in the browser.
+    RewriteCond %{THE_REQUEST} \s/+(.*/)?(index|login|register|logout|dashboard|submit|news|404)\.php(?:[?\s]) [NC]
+    RewriteRule ^(?:.*/)?index\.php$ ./ [R=302,L,NE]
+    RewriteCond %{THE_REQUEST} \s/+(.*/)?login\.php(?:[?\s]) [NC]
+    RewriteRule ^(?:.*/)?login\.php$ login [R=302,L,NE]
+    RewriteCond %{THE_REQUEST} \s/+(.*/)?register\.php(?:[?\s]) [NC]
+    RewriteRule ^(?:.*/)?register\.php$ register [R=302,L,NE]
+    RewriteCond %{THE_REQUEST} \s/+(.*/)?logout\.php(?:[?\s]) [NC]
+    RewriteRule ^(?:.*/)?logout\.php$ logout [R=302,L,NE]
+    RewriteCond %{THE_REQUEST} \s/+(.*/)?dashboard\.php(?:[?\s]) [NC]
+    RewriteRule ^(?:.*/)?dashboard\.php$ dashboard [R=302,L,NE]
+    RewriteCond %{THE_REQUEST} \s/+(.*/)?submit\.php(?:[?\s]) [NC]
+    RewriteRule ^(?:.*/)?submit\.php$ submit [R=302,L,NE]
+    RewriteCond %{THE_REQUEST} \s/+(.*/)?404\.php(?:[?\s]) [NC]
+    RewriteRule ^(?:.*/)?404\.php$ 404 [R=302,L,NE]
+    RewriteCond %{THE_REQUEST} \s/+(.*/)?news\.php\?id=([^\s&]+) [NC]
+    RewriteRule ^(?:.*/)?news\.php$ news?id=%2 [R=302,L,NE]
+
+    # Clean public and account routes.
     RewriteRule ^news/([^/]+)/?$ news.php?slug=$1 [QSA,L]
     RewriteRule ^category/([^/]+)/?$ index.php?category=$1 [QSA,L]
     RewriteRule ^tag/([^/]+)/?$ index.php?tag=$1 [QSA,L]
     RewriteRule ^author/([^/]+)/?$ index.php?author=$1 [QSA,L]
     RewriteRule ^user/([^/]+)/?$ index.php?user=$1 [QSA,L]
     RewriteRule ^admin/?$ admin/index.php [L]
+    RewriteRule ^admin/smtp/?$ admin/smtp-settings.php [L]
+    RewriteRule ^admin/settings/?$ admin/settings.php [L]
+    RewriteRule ^admin/news/?$ admin/news.php [L]
+    RewriteRule ^admin/users/?$ admin/users.php [L]
+    RewriteRule ^admin/categories/?$ admin/categories.php [L]
+    RewriteRule ^admin/menus/?$ admin/menus.php [L]
+    RewriteRule ^admin/news/edit/?$ admin/news-edit.php [QSA,L]
     RewriteRule ^dashboard/?$ dashboard.php [L]
     RewriteRule ^login/?$ login.php [L]
     RewriteRule ^register/?$ register.php [L]
@@ -23,6 +48,7 @@ ErrorDocument 404 404.php
     RewriteRule ^submit/?$ submit.php [L]
     RewriteRule ^404/?$ 404.php [L]
 
+    # Existing files/directories remain available to the rewrite engine.
     RewriteCond %{REQUEST_FILENAME} -f [OR]
     RewriteCond %{REQUEST_FILENAME} -d
     RewriteRule ^ - [L]
