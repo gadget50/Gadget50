@@ -1,0 +1,25 @@
+<?php
+
+declare(strict_types=1);
+require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/../includes/email.php';
+requireLogin('../login.php');
+requireRole('super_admin', '../login.php');
+$pdo = Database::getInstance();
+$providers = ['gmail'=>'Gmail','zoho'=>'Zoho Mail','custom'=>'Other / Custom SMTP'];
+$active = activeMailProvider();
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
+    $provider = strtolower(trim((string)($_POST['provider'] ?? 'none')));
+    if ($provider === 'none') { setSetting($pdo,'active_email_provider','none'); setSetting($pdo,'email_service_enabled','0'); setSetting($pdo,'email_smtp_validated','0'); setFlash('success','All email providers disabled.'); redirect('smtp-settings.php'); }
+    if (!isset($providers[$provider])) { setFlash('danger','Invalid provider.'); redirect('smtp-settings.php'); }
+    $prefix = $provider . '_smtp_';
+    foreach (['host','port','encryption','username','from_email','from_name'] as $field) setSetting($pdo,$prefix.$field,trim((string)($_POST[$field] ?? '')));
+    if ((string)($_POST['password'] ?? '') !== '') setSetting($pdo,$prefix.'password',(string)$_POST['password']);
+    $config = getMailConfig($provider); $config['enabled']=true; $config['validated']=true;
+    if ((string)($_POST['action'] ?? '') === 'test') { $ok=testSmtpConnection($config); setFlash($ok?'success':'danger',$ok?'SMTP test succeeded.':'SMTP test failed. Check credentials and app password.'); redirect('smtp-settings.php'); }
+    setSetting($pdo,'active_email_provider',$provider); setSetting($pdo,'email_service_enabled','1'); setSetting($pdo,'email_smtp_validated','1'); setFlash('success',$providers[$provider].' SMTP is active.'); redirect('smtp-settings.php');
+}
+$values=[]; foreach (array_keys($providers) as $provider) { $p=$provider.'_smtp_'; $values[$provider]=['host'=>getSetting($p.'host',''),'port'=>getSetting($p.'port','587'),'encryption'=>getSetting($p.'encryption','tls'),'username'=>getSetting($p.'username',''),'from_email'=>getSetting($p.'from_email',''),'from_name'=>getSetting($p.'from_name','Gadget 50')]; }
+$flash=getFlash();
+?><!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SMTP Providers</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="../assets/css/style.css"></head><body class="dashboard-body"><main class="container py-4"><div class="d-flex justify-content-between align-items-center mb-4"><div><span class="eyebrow">EMAIL CONTROL</span><h1>SMTP Providers</h1><p class="text-muted">Save each provider separately; only the active provider sends mail.</p></div><a class="btn btn-outline-secondary" href="index.php">Back</a></div><?php if($flash):?><div class="alert alert-<?=e((string)$flash['type'])?>"><?=e((string)$flash['message'])?></div><?php endif;?><div class="row g-4"><?php foreach($providers as $provider=>$label):?><div class="col-lg-4"><div class="content-panel h-100"><h2><?=e($label)?> <?php if($active===$provider):?><span class="badge bg-success">ACTIVE</span><?php endif;?></h2><form method="post"><input type="hidden" name="csrf_token" value="<?=e(csrfToken())?>"><input type="hidden" name="provider" value="<?=e($provider)?>"><label class="form-label">Host</label><input class="form-control mb-2" name="host" value="<?=e($values[$provider]['host'])?>" required><label class="form-label">Port</label><input class="form-control mb-2" name="port" value="<?=e($values[$provider]['port'])?>" required><label class="form-label">Encryption</label><select class="form-select mb-2" name="encryption"><option value="tls" <?=$values[$provider]['encryption']==='tls'?'selected':''?>>TLS</option><option value="ssl" <?=$values[$provider]['encryption']==='ssl'?'selected':''?>>SSL</option><option value="none" <?=$values[$provider]['encryption']==='none'?'selected':''?>>None</option></select><label class="form-label">Username</label><input class="form-control mb-2" name="username" value="<?=e($values[$provider]['username'])?>" required><label class="form-label">Password/App Password</label><input class="form-control mb-2" type="password" name="password" placeholder="Blank keeps saved password"><label class="form-label">From email</label><input class="form-control mb-2" type="email" name="from_email" value="<?=e($values[$provider]['from_email'])?>" required><label class="form-label">From name</label><input class="form-control mb-3" name="from_name" value="<?=e($values[$provider]['from_name'])?>"><button class="btn btn-outline-primary" name="action" value="test">Test</button> <button class="btn btn-primary" name="action" value="save">Save & Activate</button></form></div></div><?php endforeach;?></div><form method="post" class="mt-4"><input type="hidden" name="csrf_token" value="<?=e(csrfToken())?>"><input type="hidden" name="provider" value="none"><button class="btn btn-outline-danger">Disable SMTP</button></form></main></body></html>
